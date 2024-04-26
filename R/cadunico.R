@@ -73,7 +73,10 @@ tratar_cadunico <- function(arquivo, ano) {
   )
   padronizado[, (colunas_a_remover) := NULL]
   
-  dir_geocode <- "../../../../CGDTI/IpeaDataLab/projetos/geolocalizacao/cadunico"
+  dir_geocode <- file.path(
+    Sys.getenv("USERS_DATA_PATH"),
+    "CGDTI/IpeaDataLab/projetos/geolocalizacao/cadunico"
+  )
   if (!dir.exists(dir_geocode)) dir.create(dir_geocode)
   
   destino <- file.path(
@@ -117,9 +120,9 @@ geolocalizar_cadunico <- function(arquivo, ano) {
   geolocalizado_nao_vazio <- geolocalizado[!geoms_vazias, ]
   geolocalizado_vazio <- geolocalizado[geoms_vazias, ]
   
-  h3_res9 <- h3jsr::point_to_cell(geolocalizado_nao_vazio, res = 9)
-  h3_res8 <- h3jsr::point_to_cell(geolocalizado_nao_vazio, res = 8)
-  h3_res7 <- h3jsr::point_to_cell(geolocalizado_nao_vazio, res = 7)
+  h3_res9 <- calcular_h3(geolocalizado_nao_vazio, res = 9)
+  h3_res8 <- calcular_h3(geolocalizado_nao_vazio, res = 8)
+  h3_res7 <- calcular_h3(geolocalizado_nao_vazio, res = 7)
   
   geoloc_tratado <- rbind(geolocalizado_nao_vazio, geolocalizado_vazio)
   geoloc_tratado <- cbind(
@@ -139,7 +142,10 @@ geolocalizar_cadunico <- function(arquivo, ano) {
   
   geoloc_tratado[, (campos_do_endereco) := NULL]
   
-  dir_geocode <- "../../../../CGDTI/IpeaDataLab/projetos/geolocalizacao/cadunico"
+  dir_geocode <- file.path(
+    Sys.getenv("USERS_DATA_PATH"),
+    "CGDTI/IpeaDataLab/projetos/geolocalizacao/cadunico"
+  )
   
   destino <- file.path(
     dir_geocode,
