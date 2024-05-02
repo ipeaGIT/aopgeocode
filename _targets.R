@@ -23,15 +23,24 @@ if (!interactive()) {
 }
 
 list(
-  # tar_target(anos_censo_escolar, 2011:2020),
-  # tar_target(
-  #   arquivos_censo_escolar,
-  #   file.path(
-  #     Sys.getenv("RESTRICTED_DATA_PATH"),
-  #     paste0("RAIS/csv/estab", anos_rais, ".csv")
-  #   ),
-  #   format = "file_fast"
-  # ),
+  tar_target(anos_censo_escolar, 2007:2023),
+  tar_target(
+    arquivos_censo_escolar,
+    gerar_arquivos_censo_escolar(anos_censo_escolar),
+    format = "file_fast"
+  ),
+  tar_target(
+    censo_escolar_tratado,
+    tratar_censo_escolar(arquivos_censo_escolar, anos_censo_escolar),
+    pattern = map(arquivos_censo_escolar, anos_censo_escolar),
+    format = "file_fast"
+  ),
+  tar_target(
+    censo_escolar_geolocalizado,
+    geolocalizar_censo_escolar(censo_escolar_tratado, anos_censo_escolar),
+    pattern = map(censo_escolar_tratado, anos_censo_escolar),
+    format = "file_fast"
+  ),
   
   tar_target(anos_rais, 2002:2021),
   tar_target(
@@ -95,6 +104,12 @@ list(
     cpf_tratado,
     tratar_cpf(arquivos_cpf, n_linhas_lote_cpf, n_linhas_a_pular_cpf),
     pattern = map(n_linhas_lote_cpf, n_linhas_a_pular_cpf),
+    format = "file_fast"
+  ),
+  tar_target(
+    cpf_geolocalizado,
+    geolocalizar_cpf(cpf_tratado),
+    pattern = map(cpf_tratado),
     format = "file_fast"
   )
 )

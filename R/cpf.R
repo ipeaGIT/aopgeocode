@@ -23,7 +23,7 @@ calcular_n_linhas_a_pular_cpf <- function(n_linhas_lote) {
 # arquivo <- tar_read(arquivos_cpf)
 # n_linhas_lote <- tar_read(n_linhas_lote_cpf)[2]
 # n_linhas_a_pular <- tar_read(n_linhas_a_pular_cpf)[2]
-tratar_cpf <- function(cpf, n_linhas_lote, n_linhas_a_pular) {
+tratar_cpf <- function(arquivo, n_linhas_lote, n_linhas_a_pular) {
   colunas_a_manter <- c(
     "cpf", # identificador
     "uf_dom", # estado
@@ -105,6 +105,60 @@ tratar_cpf <- function(cpf, n_linhas_lote, n_linhas_a_pular) {
     paste0("cpf_tratado_lote_", n_lote, ".parquet")
   )
   arrow::write_parquet(padronizado, sink = destino)
+  
+  return(destino)
+}
+
+# arquivo <- tar_read(cpf_tratado, branches = 1)
+geolocalizar_cpf <- function(arquivo) {
+  # condaenv setado no .Rprofile pra que nao houvesse problemas ao usar o arrow,
+  # que tambem usa o reticulate e causa problemas no geocodepro
+  
+  padronizado <- arrow::read_parquet(arquivo)
+  
+  localizador <- paste0(
+    "C://StreetMap/NewLocators/BRA_",
+    getOption("TARGETS_N_CORES"),
+    "/BRA.loc"
+  )
+  campos_do_endereco <- geocodepro::address_fields_const(
+    Address_or_Place = "logr_completo",
+    City = "municipio",
+    State = "estado",
+    ZIP = "cep",
+    Neighborhood = "bairro"
+  )
+  
+  geolocalizado <- geocodepro::geocode(
+    padronizado,
+    locator = localizador,
+    address_fields = campos_do_endereco,
+    verbose = getOption("TARGETS_VERBOSE")
+  )
+  
+  geolocalizado <- calcular_indices_h3(
+    geolocalizado,
+    workers = min(20, getOption("TARGETS_N_CORES"))
+  )
+  
+  data.table::setcolorder(geolocalizado, "cpf")
+  geolocalizado[, (campos_do_endereco) := NULL]
+  
+  dir_geocode <- file.path(
+    Sys.getenv("USERS_DATA_PATH"),
+    "CGDTI/IpeaDataLab/projetos/geolocalizacao/cpf"
+  )
+  if (!dir.exists(dir_geocode)) dir.create(dir_geocode)
+  
+  dir_tratado <- file.path(dir_geocode, "geolocalizado")
+  if (!dir.exists(dir_tratado)) dir.create(dir_tratado)
+  
+  n_lote <- stringr::str_extract(arquivo, "\\d{2}")
+  destino <- file.path(
+    dir_tratado,
+    paste0("cpf_geolocalizado_lote_", n_lote, ".parquet")
+  )
+  arrow::write_parquet(geolocalizado, sink = destino)
   
   return(destino)
 }

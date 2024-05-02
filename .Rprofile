@@ -1,4 +1,4 @@
-#source("renv/activate.R")
+source("renv/activate.R")
 
 # infelizmente isso precisa vir aqui pra que a gente consigar usar o {arrow}. o
 # {arrow} tb usa o reticulate e acaba inviabilizando o uso do arcpy se a gente
