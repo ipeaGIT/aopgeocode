@@ -6,9 +6,11 @@ source("renv/activate.R")
 # afins. o rstudio tb tem um esquema de "pre-load" dos pacotes usados no código
 # que faz com que a gente precise fazer essa chamada no .Rprofile, caso
 # contrário não funcionaria
-reticulate::use_condaenv(
-  "C://Program Files/ArcGIS/Pro/bin/Python/envs/arcgispro-py3"
-)
-invisible(reticulate::import("arcpy"))
+if (interactive()) {
+  reticulate::use_condaenv(
+    "C://Program Files/ArcGIS/Pro/bin/Python/envs/arcgispro-py3"
+  )
+  invisible(reticulate::import("arcpy"))
+}
 
 if (Sys.getenv("RUSER") == "DHERSZ") source("~/.Rprofile")

@@ -78,7 +78,10 @@ calcular_h3_future_fora <- function(coords_nao_vazias, indices_grupos, res) {
         ids <- h3jsr::point_to_cell(coords_nao_vazias[i, ], res = res)
       )
     },
-    .options = furrr::furrr_options(globals = c("coords_nao_vazias", "res"))
+    .options = furrr::furrr_options(
+      seed = TRUE,
+      globals = c("coords_nao_vazias", "res")
+    )
   )
   
   ids_h3 <- unlist(ids_h3, use.names = FALSE)

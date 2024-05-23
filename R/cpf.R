@@ -111,8 +111,12 @@ tratar_cpf <- function(arquivo, n_linhas_lote, n_linhas_a_pular) {
 
 # arquivo <- tar_read(cpf_tratado, branches = 1)
 geolocalizar_cpf <- function(arquivo) {
-  # condaenv setado no .Rprofile pra que nao houvesse problemas ao usar o arrow,
-  # que tambem usa o reticulate e causa problemas no geocodepro
+  # setando condaenv e importando arcpy pra evitar problemas com o arrow, que
+  # tambem usa o reticulate e causa conflitos com o geocodepro
+  reticulate::use_condaenv(
+    "C://Program Files/ArcGIS/Pro/bin/Python/envs/arcgispro-py3"
+  )
+  invisible(reticulate::import("arcpy"))
   
   padronizado <- arrow::read_parquet(arquivo)
   
