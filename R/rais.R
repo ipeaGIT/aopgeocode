@@ -1,104 +1,177 @@
+
+
+# gerar_arquivos_rais -------------------------------------------------------------------------
+
 # anos_rais <- tar_read(anos_rais)
+
 gerar_arquivos_rais <- function(anos_rais) {
   arquivos <- purrr::map_chr(
     anos_rais,
     function(ano) {
-      if (ano == 2008 || ano >= 2016) {
-        file.path(
-          Sys.getenv("RESTRICTED_DATA_PATH"),
-          paste0("RAIS/csv/estab", ano, ".csv")
-        )
-      } else {
-        file.path(
-          Sys.getenv("RESTRICTED_DATA_PATH"),
-          paste0("RAIS/parquet/estab", ano)
-        )
-      }
+      file.path(
+        Sys.getenv("RESTRICTED_DATA_PATH"), 
+        paste0("RAIS/parquet/estabs/ano=", ano, "/estabs.parquet")
+      )
     }
   )
   
   return(arquivos)
 }
 
-# arquivo <- tar_read(arquivos_rais)[1]
-# ano <- tar_read(anos_rais)[1]
-tratar_rais <- function(arquivo, ano) {
+
+
+# tratar_rais ---------------------------------------------------------------------------------
+
+#' padronizar endereços da rais
+#' @param arquivo `string`, caminho do arquivo da rais bruta.
+#' @param ano `numeric`, ano da rais
+#' @param filtro_muni `vector` códigos de município opcional para filtrar a rais
+#' @param salvar_target se `TRUE` (default), salva o arquivo em "_targets/objects"
+#' @param destino caminho para salvar o arquivo. se NULL (default), salva na pasta específica, 
+#'  desde que salvar_target = `FALSE`
+
+tratar_rais <- function(arquivo, ano, filtro_muni = NULL, salvar_target = TRUE, destino = NULL) {
+  
   colunas_a_manter <- c(
-    "id_estab", # identificador
+    "id_estab", # identificador 1,
+    "cei_vinc", # identificador 2,
     "uf", # estado
     "codemun", # municipio
-    "endereco", # logradouro
-    "cep" # cep
+    "endereco", # endereço antes de 2011
+    "no_logradouro", # nome
+    "nu_logradouro", # numero
+    "bairro",
+    "cep", 
+    "qt_vinc_ativos",
+    "nat_jur2009",
+    "nat_jur2009_1", # concla 2009.1
+    "nat_jur2014",
+    "nat_jur2016",
+    "nat_jur2018"
   )
-  if (ano == 2008 || ano >= 2011) {
-    colunas_a_manter <- c(setdiff(colunas_a_manter, "endereco"), "logradouro") # campo logradouro muda de nome a partir de 2011
-  }
-  if (ano >= 2011)  colunas_a_manter <- c(colunas_a_manter, "bairro")
   
-  if (ano == 2008 || ano >= 2016) {
-    original <- data.table::fread(
-      arquivo,
-      select = list(character = colunas_a_manter),
-      na.strings = ""
-    )
+  original <- arrow::read_parquet(arquivo, col_select = any_of(colunas_a_manter), as_data_frame = F)
+  
+  
+  ## filtros -- adaptado de https://github.com/ipeaGIT/acesso_oport/blob/master/R/fun/empregos/empregos_geo.R
+  if("nat_jur2009" %in% colnames(original)) {
+    gov <- original |> 
+      filter(nat_jur2009 %in% c(1015:1210))
+  } else if("nat_jur2009_1" %in% colnames(original)) {
+    gov <- original |> 
+     filter(nat_jur2009_1 %in% c(1015:1210))
+  } else if("nat_jur2014" %in% colnames(original)) {
+    gov <- original |> 
+      filter(nat_jur2014 %in% c(1015:1279))
+  } else if("nat_jur2016" %in% colnames(original)) {
+    gov <- original |> 
+      filter(nat_jur2016 %in% c(1015:1279))
+  } else if("nat_jur2018" %in% colnames(original)) {
+    gov <- original |> 
+      filter(nat_jur2018 %in% c(1015:1341))
+  } else if("nat_jur2021" %in% colnames(original)) {
+    gov <- original |> 
+      filter(nat_jur2021 %in% c(1015:1341))
   } else {
-    original <- arrow::open_dataset(arquivo)
-    original <- select(original, all_of(colunas_a_manter))
-    original <- data.table::setDT(collect(original))
+    message(
+      "Coluna de natureza jurídica não detectada. Verifique manualmente se há uma nova em vigência."
+    )
   }
   
-  padronizado <- enderecopadrao::padronizar_enderecos(
-    original,
-    campos_do_endereco = enderecopadrao::correspondencia_campos(
-      logradouro = ifelse(ano == 2008 | ano >= 2011, "logradouro", "endereco"),
-      estado = "uf",
-      municipio = "codemun",
-      cep = "cep",
-      bairro = if (ano >= 2011) "bairro" else NULL
-    )
+  if(!is.null(filtro_muni)) {
+    original <- original |> 
+      filter(codemun %in% filtro_muni$codemun)
+  }
+  
+  original <- original |> 
+    filter(qt_vinc_ativos > 0)
+  
+  original <- original |> 
+    anti_join(gov) |> 
+    collect()
+  
+  campos <- geocodebr::definir_campos(
+    logradouro = ifelse(ano >= 2011, "no_logradouro", "endereco"),
+    numero = if(ano >= 2011) "nu_logradouro" else NULL,
+    cep = "cep",
+    localidade = if(ano >= 2011) "bairro" else NULL,
+    municipio = "codemun",
+    estado = "uf"
   )
   
-  dir_geocode <- file.path(
-    Sys.getenv("USERS_DATA_PATH"),
-    "CGDTI/IpeaDataLab/projetos/geolocalizacao/rais"
-  )
-  if (!dir.exists(dir_geocode)) dir.create(dir_geocode)
+  # workaround para funcionar no padronizar_enderecos
+  names(campos)[names(campos) == "localidade"] <- "bairro"
   
-  destino <- file.path(
-    dir_geocode,
-    paste0("rais_padronizada_", ano, ".parquet")
-  )
-  arrow::write_parquet(padronizado, sink = destino)
+  padronizado <- enderecobr::padronizar_enderecos(original, campos_do_endereco = campos)
   
-  return(destino)
+  if(salvar_target) {
+    return(padronizado)
+  } else {
+    if(is.null(destino)) {
+      dir_geocode <- file.path(
+        Sys.getenv("USERS_DATA_PATH"),
+        "CGDTI/IpeaDataLab/projetos/geolocalizacao/rais"
+      )
+      if (!dir.exists(dir_geocode)) dir.create(dir_geocode)
+      destino <- file.path(
+        dir_geocode,
+        paste0("rais_padronizada_", ano, ".parquet")
+      )
+    } else {
+      destino <- file.path(
+        destino,
+        paste0("rais_padronizada_", ano, ".parquet")
+      )
+    }
+    
+    arrow::write_parquet(padronizado, sink = destino)
+    
+    return(destino)
+  }
 }
+
+## reprex
+# library(targets)
+# arquivo <- tar_read(arquivos_rais)[1]
+# ano <- tar_read(anos_rais)[1]
+# filtro_muni <- tar_read(muni_list) |>
+#   pull(codemun)
+
+
+# geolocalizar_rais ---------------------------------------------------------------------------
 
 # arquivo <- tar_read(rais_tratada, branches = 1)
 # ano <- tar_read(anos_rais)[1]
-geolocalizar_rais <- function(arquivo, ano) {
-  # condaenv setado no .Rprofile pra que nao houvesse problemas ao usar o arrow,
-  # que tambem usa o reticulate e causa problemas no geocodepro
+geolocalizar_rais <- function(arquivo, ano, cores = NULL, salvar_target = TRUE, destino = NULL) {
   
-  padronizado <- arrow::read_parquet(arquivo)
+  cores <- if(is.null(cores)) {
+    getOption("TARGETS_N_CORES")
+  } else {
+    cores
+  }
   
-  localizador <- paste0(
-    "C://StreetMap/NewLocators/BRA_",
-    getOption("TARGETS_N_CORES"),
-    "/BRA.loc"
+  padronizado <- if("character" %in% class(arquivo)) {
+    arrow::read_parquet("arquivo")
+  } else {
+    arquivo
+  }
+  
+  campos_do_endereco <- geocodebr::definir_campos(
+    logradouro = ifelse(ano >= 2011, "no_logradouro", "endereco"),
+    numero = if(ano >= 2011) "nu_logradouro" else NULL,
+    cep = "cep",
+    localidade = if(ano >= 2011) "bairro" else NULL,
+    municipio = "codemun",
+    estado = "uf"
   )
-  campos_do_endereco <- geocodepro::address_fields_const(
-    Address_or_Place = "logradouro",
-    City = "municipio",
-    State = "estado",
-    ZIP = "cep",
-    Neighborhood = if (ano >= 2011) "bairro" else NULL
-  )
   
-  geolocalizado <- geocodepro::geocode(
+  geolocalizado <- geocodebr::geocode(
     padronizado,
-    locator = localizador,
-    address_fields = campos_do_endereco,
-    verbose = getOption("TARGETS_VERBOSE")
+    campos_endereco = campos_do_endereco,
+    resolver_empates = T, 
+    resultado_sf = T, 
+    n_cores = cores,
+    verboso = getOption("TARGETS_VERBOSE")
   )
   
   geoms_vazias <- sf::st_is_empty(geolocalizado)
@@ -109,11 +182,13 @@ geolocalizar_rais <- function(arquivo, ano) {
   h3_res8 <- calcular_h3(geolocalizado_nao_vazio, res = 8)
   h3_res7 <- calcular_h3(geolocalizado_nao_vazio, res = 7)
   
-  geoloc_tratado <- rbind(geolocalizado_nao_vazio, geolocalizado_vazio)
+  geoloc_tratado <- bind_rows(geolocalizado_nao_vazio, geolocalizado_vazio)
+  
   geoloc_tratado <- cbind(
     data.table::as.data.table(sf::st_drop_geometry(geoloc_tratado)),
     data.table::as.data.table(sf::st_coordinates(geoloc_tratado))
   )
+  
   geoloc_tratado[
     ,
     `:=`(
@@ -122,21 +197,38 @@ geolocalizar_rais <- function(arquivo, ano) {
       h3_res7 = c(h3_res7, rep(NA_character_, times = nrow(geolocalizado_vazio)))
     )
   ]
-  data.table::setnames(geoloc_tratado, old = c("X", "Y"), new = c("lon", "lat"))
-  data.table::setcolorder(geoloc_tratado, "id_estab")
   
-  geoloc_tratado[, (campos_do_endereco) := NULL]
+  data.table::setnames(geoloc_tratado, old = c("X", "Y"), new = c("lon", "lat"))
+  
+  data.table::setcolorder(geoloc_tratado, c("id_estab", "cei_vinc", "codemun"))
+  
+  remover_campos <- campos_do_endereco[campos_do_endereco != "codemun"]
+  
+  geoloc_tratado[, (remover_campos) := NULL]
   
   dir_geocode <- file.path(
     Sys.getenv("USERS_DATA_PATH"),
     "CGDTI/IpeaDataLab/projetos/geolocalizacao/rais"
   )
   
-  destino <- file.path(
-    dir_geocode,
-    paste0("rais_geolocalizada_", ano, ".parquet")
-  )
-  arrow::write_parquet(geoloc_tratado, sink = destino)
-  
-  return(destino)
+  if(salvar_target) {
+    return(geoloc_tratado)
+  } else {
+    if(is.null(destino)) {
+      dir_geocode <- file.path(
+        Sys.getenv("USERS_DATA_PATH"),
+        "CGDTI/IpeaDataLab/projetos/geolocalizacao/rais"
+      )
+    } else {
+      dir_geocode <- file.path(destino)
+    }
+    
+    destino <- file.path(
+      dir_geocode,
+      paste0("rais_geolocalizada_", ano, ".parquet")
+    )
+    arrow::write_parquet(geoloc_tratado, sink = destino)
+    
+    return(destino)
+  }
 }

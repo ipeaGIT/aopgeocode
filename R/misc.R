@@ -4,7 +4,7 @@ calcular_h3 <- function(points, res) {
   corte_grupos <- cut(1:nrow(points), breaks = getOption("TARGETS_N_CORES"))
   indices_grupos <- split(1:nrow(points), corte_grupos)
   
-  points <- select(points, geom)
+  points <- select(points, !!as.name(attr(points, "sf_column")))
   points <- sf::st_coordinates(points)
   
   future::plan(future.callr::callr, workers = getOption("TARGETS_N_CORES"))
@@ -40,7 +40,7 @@ calcular_indices_h3 <- function(geolocalizado,
     indices_grupos <- split(1:n_linhas, corte_grupos)
   }
   
-  coords_nao_vazias <- select(geolocalizado_nao_vazio, geom)
+  coords_nao_vazias <- select(geolocalizado_nao_vazio, !!as.name(attr(points, "sf_column")))
   coords_nao_vazias <- sf::st_coordinates(coords_nao_vazias)
   
   if (workers > 1) future::plan(future.callr::callr, workers = workers)
@@ -88,3 +88,41 @@ calcular_h3_future_fora <- function(coords_nao_vazias, indices_grupos, res) {
   
   return(ids_h3)
 }
+
+
+
+# treat name ----------------------------------------------------------------------------------
+
+## source: https://github.com/ipeaGIT/aoppop/blob/main/R/1_spatial_manipulation.R#L126
+
+treat_name <- function(pop_units) {
+  treated <- tolower(pop_units$name_pop_unit)
+  treated <- gsub("\\´", "'", treated)
+  treated <- iconv(treated, from = "UTF-8", to = "ASCII//TRANSLIT")
+  
+  treated <- gsub("regiao imediata de ", "", treated)
+  
+  is_international <- grepl("\\/brasil", treated)
+  international <- treated[is_international]
+  international <- strsplit(international, " - ")
+  brazilian_city <- vapply(
+    international,
+    FUN.VALUE = character(1),
+    FUN = function(x) x[grepl("\\/brasil$", x)]
+  )
+  brazilian_city <- sub("internacional de ", "", brazilian_city)
+  brazilian_city <- sub("\\/brasil", "", brazilian_city)
+  treated[is_international] <- brazilian_city
+  
+  treated <- gsub("\\/[a-z]{2}$", "", treated)
+  treated <- gsub("\\/[a-z]{2} ", " ", treated)
+  
+  treated <- gsub("\\/", "_", treated)
+  treated <- gsub(" ", "_", treated)
+  
+  is_immediate_region <- pop_units$type == "immediate_region"
+  treated[is_immediate_region] <- paste0("ri_", treated[is_immediate_region])
+  
+  return(treated)
+}
+
